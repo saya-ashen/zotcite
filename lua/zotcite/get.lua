@@ -519,10 +519,97 @@ M.yaml_field = function(field, bn)
     return nil
 end
 
+--- Find project root by searching upward for configuration files
+---@param start_path string Starting directory path
+---@return string | nil Project root directory
+local find_project_root = function(start_path)
+    local current_dir = start_path
+    while current_dir ~= "/" do
+        local quarto_yml = current_dir .. "/_quarto.yml"
+        local metadata_yml = current_dir .. "/_metadata.yml"
+        
+        if vim.fn.filereadable(quarto_yml) == 1 or vim.fn.filereadable(metadata_yml) == 1 then
+            return current_dir
+        end
+        
+        local parent_dir = vim.fn.fnamemodify(current_dir, ":h")
+        if parent_dir == current_dir then break end
+        current_dir = parent_dir
+    end
+    return nil
+end
+
+--- Parse YAML file content and extract field value
+---@param file_path string Path to YAML file
+---@param field string Field name to extract
+---@return string | string[] | nil
+local parse_yaml_file = function(file_path, field)
+    if vim.fn.filereadable(file_path) ~= 1 then return nil end
+    
+    local lines = vim.fn.readfile(file_path)
+    local nlines = #lines
+    
+    for i = 1, nlines do
+        local line = lines[i]
+        if line:find("^%s*" .. field .. "%s*:") then
+            if line:find("^%s*" .. field .. "%s*:%s*$") then
+                -- multiline list
+                local value = {}
+                local j = i + 1
+                while j <= nlines and lines[j]:find("^%s*%-") do
+                    local item = lines[j]:match("^%s*%-%s*(.-)%s*$")
+                    table.insert(value, get_yaml_string(item))
+                    j = j + 1
+                end
+                return value
+            elseif line:find("^%s*" .. field .. "%s*:%s*%[.*%]%s*$") then
+                -- bracketed list in single line
+                local list_str = line:match("^%s*" .. field .. "%s*:%s*%[(.-)%]%s*$")
+                local value = vim.split(list_str, ",")
+                for k, v in pairs(value) do
+                    value[k] = get_yaml_string(v)
+                end
+                return value
+            else
+                -- string value
+                local value = line:match("^%s*" .. field .. "%s*:%s*(.-)%s*$")
+                return get_yaml_string(value)
+            end
+        end
+    end
+    return nil
+end
+
+--- Get YAML field from external Quarto configuration files
+---@param field string Field name
+---@param file_path string Current file path (optional, defaults to current buffer)
+---@return string | string[] | nil
+M.quarto_yaml_field = function(field, file_path)
+    file_path = file_path or vim.api.nvim_buf_get_name(0)
+    if file_path == "" then return nil end
+    
+    local current_dir = vim.fn.fnamemodify(file_path, ":h")
+    local project_root = find_project_root(current_dir)
+    if not project_root then return nil end
+    
+    -- Try _quarto.yml first
+    local quarto_yml = project_root .. "/_quarto.yml"
+    local value = parse_yaml_file(quarto_yml, field)
+    if value then return value end
+    
+    -- Try _metadata.yml in project root
+    local metadata_yml = project_root .. "/_metadata.yml"
+    return parse_yaml_file(metadata_yml, field)
+end
+
 --- Get collection names from buffer and set them in zotero.lua
 ---@param bn integer Buffer number
 M.collection_name = function(bn)
     local newc = M.yaml_field("collection", bn)
+    if not newc then
+        -- Try to find collection in external Quarto configuration files
+        newc = M.quarto_yaml_field("collection")
+    end
     if not newc then return end
 
     if type(newc) == "string" then newc = { newc } end

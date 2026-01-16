@@ -29,7 +29,11 @@ end
 local find_markdown_bib = function()
     local ybib = require("zotcite.get").yaml_field("bibliography", 0)
     if not ybib then
-        zwarn("Could not find 'bibliography' field in YAML header.")
+        -- Try to find bibliography in external Quarto configuration files
+        ybib = require("zotcite.get").quarto_yaml_field("bibliography")
+    end
+    if not ybib then
+        zwarn("Could not find 'bibliography' field in YAML header or Quarto configuration files.")
         return nil
     end
 

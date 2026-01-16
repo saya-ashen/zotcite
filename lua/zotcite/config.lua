@@ -102,6 +102,10 @@ local set_buffer_key_type = function()
         end
     else
         local kt = require("zotcite.get").yaml_field("zotcite-key-type", bn)
+        if not kt then
+            -- Try to find zotcite-key-type in external Quarto configuration files
+            kt = require("zotcite.get").quarto_yaml_field("zotcite-key-type")
+        end
         if kt and type(kt) == "string" then
             if vim.tbl_contains({ "zotero", "template", "better-bibtex" }, kt) then
                 key_type[bn] = kt
